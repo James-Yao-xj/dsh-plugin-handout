@@ -1,0 +1,9 @@
+{
+  "title": "共读",
+  "empty": "还没有打开讲义。用 /handout open <路径> 或让模型打开一份。",
+  "outline": "大纲",
+  "notes": "批注",
+  "askAboutSelection": "就这段提问",
+  "markHere": "标记为当前位置",
+  "current": "当前位置"
+}

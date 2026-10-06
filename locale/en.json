@@ -1,0 +1,9 @@
+{
+  "title": "Co-read",
+  "empty": "No handout is open. Use /handout open <path>, or ask the model to open one.",
+  "outline": "Outline",
+  "notes": "Notes",
+  "askAboutSelection": "Ask about this",
+  "markHere": "Mark as current position",
+  "current": "Current position"
+}

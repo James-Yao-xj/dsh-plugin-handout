@@ -1,0 +1,21 @@
+# 这个 bundle 往 profile 里插入的插件行。
+#
+# profile 的层叠顺序是：dsh-base → dsh-web-app → 各 bundle 的 patch →
+# ~/.dsh/profiles/desktop/cordis.patch.yml → --patch 覆盖层。
+# 所以这里只声明「默认值」，用户想改任何一项，都在 profile 自己的
+# cordis.patch.yml 里用同样的 id 覆盖即可（覆盖是整块 config 替换）。
+- insert:
+    - id: handout
+      name: 'dsh-plugin-handout'
+      config:
+        # 单次 handout_read 返回的字符上限：讲义很长时靠这个控制上下文占用。
+        maxSectionChars: 12000
+        # 大纲最多给多少节；超长讲义（含长 PDF）剩下的部分靠 handout_search 定位。
+        maxOutlineEntries: 300
+        maxSearchHits: 20
+        searchContextLines: 3
+        # PDF：允许读取的字节上限与最多抽取的页数。
+        maxPdfBytes: 67108864
+        maxPdfPages: 600
+        # 缓存几份已抽取的 PDF（按 dev:ino:size:mtimeNs 指纹失效）。
+        pdfCacheEntries: 4

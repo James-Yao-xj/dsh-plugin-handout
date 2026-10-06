@@ -1,0 +1,61 @@
+{
+  "name": "dsh-plugin-handout",
+  "version": "0.1.0",
+  "description": "共读讲义：把一份讲义（Markdown / 文本 / PDF）接进会话，随时提问、按节按页取文",
+  "type": "module",
+  "license": "MIT",
+  "author": "James-Yao-xj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/James-Yao-xj/dsh-plugin-handout.git"
+  },
+  "homepage": "https://github.com/James-Yao-xj/dsh-plugin-handout#readme",
+  "bugs": {
+    "url": "https://github.com/James-Yao-xj/dsh-plugin-handout/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "handout",
+    "pdf",
+    "reading",
+    "co-reading"
+  ],
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "docs",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "unpdf": "1.8.1",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "fixture": "node test/fixtures/make-pdf.mjs"
+  }
+}
