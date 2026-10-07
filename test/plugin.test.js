@@ -25,6 +25,10 @@ function fakeFs(files) {
   const version = (key) => `v:${files[key].length}`;
   return {
     calls,
+    /** 测试里改文件用：内容长度变了，`version` 也就变了（和真 fs 的指纹语义一致）。 */
+    write(key, value) {
+      files[key] = Buffer.from(value);
+    },
     async resolve(path) {
       const key = path.replace(/^\.\//, '');
       if (files[key] === undefined) throw new Error(`ENOENT ${key}`);
@@ -80,6 +84,7 @@ function fakeProjections() {
 function harness(files, config = {}) {
   const tools = new Map();
   const contexts = [];
+  const sections = [];
   const commands = [];
   const fs = fakeFs(
     Object.fromEntries(Object.entries(files).map(([key, value]) => [key, Buffer.from(value)]))
@@ -91,6 +96,10 @@ function harness(files, config = {}) {
     systemPrompt: {
       context: (contribution) => {
         contexts.push(contribution);
+        return () => {};
+      },
+      section: (section) => {
+        sections.push(section);
         return () => {};
       }
     },
@@ -115,14 +124,23 @@ function harness(files, config = {}) {
       .map((part) => part.text)
       .join('\n');
   const prompt = () => contexts.map((contribution) => contribution.text({ agent: { session } })).join('\n');
+  /** 静态 section 渲染出的提示文本（讲师提示词走这条路）。 */
+  const section = () =>
+    sections
+      .map((entry) => (typeof entry.text === 'function' ? entry.text({ agent: { session } }) : entry.text))
+      .join('\n');
+  const command = (rawInput) => commands[0].handler({ rawInput, agent: { session }, signal: undefined });
 
-  return { tools, contexts, commands, fs, session, call, render, prompt, projections };
+  return { tools, contexts, sections, commands, fs, session, call, render, prompt, section, command, projections };
 }
 
 const LECTURE = ['# 第三讲 梯度下降', '', '## 3.1 直觉', '沿反方向走。', '', '## 3.2 学习率', '太大会震荡。'].join('\n');
 const PDF_BYTES = readFileSync(join(here, 'fixtures', 'lecture.pdf'));
+const TEACHER = '# 你是谁\n\n你是一位擅长把公式讲成直觉的老师。';
+/** 讲师提示词的假路径：用绝对路径，免得依赖插件包根目录。 */
+const TEACHER_PATH = '/prompts/teacher.md';
 
-test('注册五个工具、一条提示上下文、一条命令', () => {
+test('注册五个工具、一条提示上下文、一段讲师提示词 section、一条命令', () => {
   const h = harness({ 'lecture.md': LECTURE });
   assert.deepEqual([...h.tools.keys()].sort(), [
     'handout_goto',
@@ -134,6 +152,10 @@ test('注册五个工具、一条提示上下文、一条命令', () => {
   assert.equal(h.contexts.length, 1);
   assert.equal(h.contexts[0].name, 'handout:co-reading');
   assert.equal(h.contexts[0].order, 1500);
+  assert.deepEqual(
+    h.sections.map((entry) => entry.name),
+    ['handout:teacher']
+  );
   assert.deepEqual(h.commands.map((command) => command.name), ['handout']);
 });
 
@@ -248,19 +270,90 @@ test('目录会被拒绝，不是被当成讲义读', async () => {
 
 test('/handout where 与 goto 直接改状态', async () => {
   const h = harness({ 'lecture.md': LECTURE });
-  const handler = h.commands[0].handler;
-  assert.match(handler({ rawInput: 'where', agent: { session: h.session } }).text, /还没有打开的讲义/);
+  // handler 是 async（teacher 子命令要读文件），所以这里一律 await。
+  assert.match((await h.command('where')).text, /还没有打开的讲义/);
 
   await h.call('handout_open', { path: 'lecture.md' });
-  assert.match(handler({ rawInput: '', agent: { session: h.session } }).text, /lecture\.md/);
+  assert.match((await h.command('')).text, /lecture\.md/);
 
-  const jumped = handler({ rawInput: 'goto 3.2', agent: { session: h.session } });
+  const jumped = await h.command('goto 3.2');
   assert.equal(jumped.kind, 'success');
   assert.match(jumped.text, /3\.2/);
-  assert.match(handler({ rawInput: 'where', agent: { session: h.session } }).text, /§3\.2/);
+  assert.match((await h.command('where')).text, /§3\.2/);
 
-  assert.equal(handler({ rawInput: 'goto 9.9', agent: { session: h.session } }).kind, 'error');
-  assert.equal(handler({ rawInput: 'bogus', agent: { session: h.session } }).kind, 'error');
+  assert.equal((await h.command('goto 9.9')).kind, 'error');
+  assert.equal((await h.command('bogus')).kind, 'error');
+});
+
+// ── 讲师提示词：一份 Markdown，决定模型「怎么讲」 ────────────────────────────
+
+test('讲师提示词注册为静态 section：不插值、位置在部署 persona 之后', () => {
+  const h = harness({ 'lecture.md': LECTURE }, { teacherPromptPath: TEACHER_PATH, teacherOrder: 42 });
+  const [section] = h.sections;
+  assert.equal(section.name, 'handout:teacher');
+  assert.equal(section.order, 42);
+  assert.equal(section.interpolate, false, '用户正文里的 {{...}} 不该让 system prompt 组装失败');
+});
+
+test('讲师提示词默认只在共读进行中生效', async () => {
+  const h = harness({ 'lecture.md': LECTURE, [TEACHER_PATH]: TEACHER }, { teacherPromptPath: TEACHER_PATH });
+  assert.equal(h.section(), '', '没有打开讲义时零开销');
+  await h.call('handout_open', { path: 'lecture.md' });
+  assert.match(h.section(), /讲成直觉的老师/);
+});
+
+test('teacherAlways 时没有讲义也注入', async () => {
+  const h = harness({ [TEACHER_PATH]: TEACHER }, { teacherPromptPath: TEACHER_PATH, teacherAlways: true });
+  await h.command('teacher reload');
+  assert.match(h.section(), /讲成直觉的老师/);
+});
+
+test('改完 Markdown，下一次共读工具调用就生效（不需要重启）', async () => {
+  const h = harness({ 'lecture.md': LECTURE, [TEACHER_PATH]: TEACHER }, { teacherPromptPath: TEACHER_PATH });
+  await h.call('handout_open', { path: 'lecture.md' });
+  assert.match(h.section(), /讲成直觉的老师/);
+
+  h.fs.write(TEACHER_PATH, '# 换个说法\n\n先问一句「你觉得呢」。');
+  await h.call('handout_goto', { section_id: '3.1' });
+  assert.match(h.section(), /先问一句/);
+  assert.doesNotMatch(h.section(), /讲成直觉的老师/);
+});
+
+test('提示词文件不存在：共读工具照常工作，只是少一段提示词', async () => {
+  const h = harness({ 'lecture.md': LECTURE }, { teacherPromptPath: '/prompts/nope.md' });
+  const opened = await h.call('handout_open', { path: 'lecture.md' });
+  assert.equal(opened.kind, 'markdown');
+  assert.equal(h.section(), '');
+  const read = await h.call('handout_read', { section_id: '3.1' });
+  assert.match(read.text, /沿反方向走/);
+});
+
+test('/handout teacher 报告加载状态、生效范围与预览', async () => {
+  const h = harness({ 'lecture.md': LECTURE, [TEACHER_PATH]: TEACHER }, { teacherPromptPath: TEACHER_PATH });
+  const before = await h.command('teacher reload');
+  assert.equal(before.kind, 'success');
+  assert.match(before.text, /已加载 \d+ 字符/);
+  assert.match(before.text, /还没有打开讲义，暂不生效/);
+  assert.doesNotMatch(before.text, /共读进行中/);
+
+  await h.call('handout_open', { path: 'lecture.md' });
+  const after = await h.command('teacher');
+  assert.match(after.text, /共读进行中，正在生效/);
+  assert.match(after.text, /预览：/);
+});
+
+test('/handout teacher 读不到文件时以 error 暴露', async () => {
+  const h = harness({ 'lecture.md': LECTURE }, { teacherPromptPath: '/prompts/nope.md' });
+  const result = await h.command('teacher');
+  assert.equal(result.kind, 'error');
+  assert.match(result.text, /不存在/);
+});
+
+test('teacherPromptPath 为空 = 关掉讲师提示词', async () => {
+  const h = harness({ 'lecture.md': LECTURE, [TEACHER_PATH]: TEACHER }, { teacherPromptPath: '' });
+  await h.call('handout_open', { path: 'lecture.md' });
+  assert.equal(h.section(), '');
+  assert.match((await h.command('teacher')).text, /已关闭/);
 });
 
 test('maxOutlineEntries 截断大纲并如实标记', async () => {

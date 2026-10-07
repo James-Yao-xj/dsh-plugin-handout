@@ -12,10 +12,11 @@
 | Markdown 讲义：分节、按节取文、检索 | ✅ 真机跑通 |
 | PDF 讲义：逐页抽取、按页寻址、检索 | ✅ 真机跑通（4 页样例） |
 | 动态系统提示带出「用户读到哪」 | ✅ 真机可见 |
+| 讲师提示词（静态系统提示 + 热重载） | ✅ 真机验证：改 Markdown 后下一轮系统提示即变，位置在 persona 之后 |
 | 源码热重载（HMR） | ✅ 已配置并验证（见 §5） |
 | 扫描件（无文字层）PDF | ✅ 明确报错并提示 OCR |
-| 单测 / 集成测试 | ✅ 42 个测试全绿（`node --test test/*.test.js`） |
-| 浏览器半（右侧栏共读面板） | ⬜ 未做，见 §6 阶段 3 |
+| 单测 / 集成测试 | ✅ 65 个测试全绿（`node --test test/*.test.js`） |
+| 浏览器半（右侧栏共读面板） | ⬜ 未做，见 §6 阶段 4 |
 
 ---
 
@@ -23,12 +24,13 @@
 
 「把讲义显示出来」这件事 **DSH 已经内置了**：右侧栏内置了文档预览（`dsh-client-ui-sidebar-documentpreview`，支持文本/Markdown/PDF/Excel/Office）。所以不需要为「看讲义」写任何代码。
 
-真正缺的是两件事：
+真正缺的是三件事：
 
 1. **模型看不见你在看什么。** 用户打开 `lecture-03.md` 滚到 3.2 节时，模型的上下文里没有任何一行提到这件事。所以「随时提问」必须靠用户每次把位置说清楚，或者靠插件把位置同步过去。
 2. **一份讲义塞不进上下文。** 讲义动辄几万字，整份读进来既贵又会被压缩掉细节。所以需要**按节取文 + 检索**，让模型精确地拿到它正在回答的那一小段。
+3. **「讲什么」有了，「怎么讲」还没有。** 讲义决定内容，讲解法（先直觉还是先定义、一次讲多少、拿不准时怎么说）默认由模型的通用风格决定。所以插件再接手一件事：把部署方维护的**讲师提示词**接进系统提示。
 
-所以这个插件的设计重心是 **「共享阅读位置」+「按需取文」**，而不是「渲染文档」。
+所以这个插件的设计重心是 **「共享阅读位置」+「按需取文」+「可调的教学法」**，而不是「渲染文档」。
 
 ---
 
@@ -90,12 +92,18 @@ profile 的层叠顺序（从下往上，上面的覆盖下面的）：
 │  状态：会话投影 handout = { path, kind, sections,            │
 │                            bookmarks, anchor, notes }        │
 │  提示：动态系统提示「用户正在读 §3.2 / 第 12 页」             │
-│  命令：/handout where | goto <节编号|页码>                    │
+│        静态系统提示「讲师提示词」（部署方的 Markdown）         │
+│  命令：/handout where | goto <节编号|页码> | teacher [reload]  │
 └─────────────────────────────────────────────────────────────┘
               ▲ 状态订阅 / ▼ 位置回写
-┌─ 浏览器半（lib/client.js）—— 阶段 3（未做） ────────────────┐
+┌─ 浏览器半（lib/client.js）—— 阶段 4（未做） ────────────────┐
 │  右侧栏新增「共读」标签页：大纲树 + 正文 + 当前位置高亮        │
 │  滚动/选中 → 回写 anchor；选中文字 → 「就这段提问」           │
+└─────────────────────────────────────────────────────────────┘
+
+┌─ 讲师提示词（prompts/teacher.md，部署方维护）────────────────┐
+│  「怎么讲」：语气 / 节奏 / 例子 / 不确定时怎么说 / 收尾        │
+│  改完存盘即生效：每次共读工具调用顺手核对文件版本              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -106,6 +114,8 @@ profile 的层叠顺序（从下往上，上面的覆盖下面的）：
 - **Markdown 的编号优先用讲义自己的数字。** 讲义正文写着「3.2 学习率」，用户就会说「我在看 3.2 节」；如果插件按标题层级另生成一套编号，就会得到 `1.2`，跟用户说的对不上。所以 `numberingOf()` 先认 `3.2`/`5.`/`4 `，再认「第三讲」→`3`，取不到才回退层级编号（撞车时也回退，保证 id 唯一）。这一条是写完第一版真机试出来的。
 - **状态用 session projection，不用内存 Map。** 投影随会话日志重放，会话恢复后位置还在；浏览器半也能直接订阅它，不用另发明一套 RPC。
 - **位置同步走动态系统提示（`systemPrompt.context`），不走静态提示。** 静态提示会把「第 3.2 节」写死在 KV 缓存前缀里；动态上下文每轮重算，才不会因为位置变化而破坏缓存命中（而且没有讲义打开时它返回空字符串，等于零开销）。
+- **讲师提示词反过来，走静态提示（`systemPrompt.section`）。** 它是稳定文本，不该因为翻页而改写前缀；而且它是「教学法」而非「事实」，属于 system prompt 的 persona/instructions 区域（`teacherOrder: 100`，落在部署 persona `0` 之后、计划与工具策略 `500+` 之前）。两条路的分工就是「事实走动态、规范走静态」。
+- **提示词是一份文件，不是一段配置。** 教学法要反复试、要 diff、要能整段替换，所以它是仓库里的 Markdown（`prompts/teacher.md`，随包发布、可进 git），配置里只放路径与上限。
 
 ---
 
@@ -126,16 +136,20 @@ dsh-plugin-handout/                ← 仓库根 = 插件包
 │   ├── index.js                   ← 宿主半：工具 + 状态 + 系统提示 + 命令
 │   ├── handout.js                 ← 文本讲义：大纲 / 取节 / 检索（零依赖纯函数）
 │   ├── pdf.js                     ← PDF 讲义：逐页抽文 + 书签 + 指纹缓存
-│   └── client.js                  ← 浏览器半：右侧栏共读面板（阶段 3 再加）
+│   ├── teacher.js                 ← 讲师提示词：路径解析 / 版本化加载 / 状态文本
+│   └── client.js                  ← 浏览器半：右侧栏共读面板（阶段 4 再加）
+├── prompts/
+│   └── teacher.md                 ← 讲师提示词正文（部署方维护；随包发布）
 ├── test/
 │   ├── handout.test.js            ← 文本解析单测
 │   ├── pdf.test.js                ← PDF 抽取单测
+│   ├── teacher.test.js            ← 讲师提示词加载单测
 │   ├── plugin.test.js             ← 用假 ctx 跑 apply() 的集成测试
 │   └── fixtures/
 │       ├── make-pdf.mjs           ← 零依赖的 PDF 生成器（夹具可读可改）
 │       └── lecture.pdf            ← 2 页夹具
 └── locale/
-    ├── zh.json                    ← 浏览器半的文案（阶段 3）
+    ├── zh.json                    ← 浏览器半的文案（阶段 4）
     └── en.json
 ```
 
@@ -164,8 +178,25 @@ dsh-plugin-handout/                ← 仓库根 = 插件包
 - `extractPdf(bytes, {maxPages})` → `{source, sections, bookmarks, pageCount, extractedPages, hasText}`。
 - `createPdfCache(limit)` → 按 `ctx.fs.stat` 的 `version`（`dev:ino:size:mtimeNs:ctimeNs`）失效的小 LRU。
 
+### `lib/teacher.js` —— 讲师提示词的加载层
 
-```
+和 `handout.js` / `pdf.js` 一样只依赖一个 `dsh-fs` 形状的只读接口（`resolve` / `stat` / `readText`），不碰 cordis，所以能直接单测：
+
+- `resolvePromptPath(configured, {packageRoot, home})`：空串 → `undefined`（关掉功能）；相对路径按**插件包根目录**解析（`PACKAGE_ROOT` 由 `import.meta.url` 推出），支持绝对路径与 `~/`。刻意不按会话 cwd 解析：提示词是部署级配置，跟着会话飘会让人莫名其妙。
+- `normalizePrompt(markdown)`：去 BOM、去 HTML 注释、trim。注释不上屏是刻意的——这份文件要给人反复读改，允许作者在里面留笔记。
+- `createTeacherPrompt({path, maxChars, onError})` → `{sync, text, state}`：`sync(fs, {cwd, signal, force})` 去磁盘核对（异步），`text()` 给系统提示组装用（同步，只读缓存）。
+- `formatTeacherStatus(state, {always, coReading})`：`/handout teacher` 的人读文本。
+
+为什么要有 `sync` / `text` 这层拆分：**系统提示的组装是同步的**（`section.text` 只接受 `(context) => string`），所以文件必须在别的地方先读进来。于是每次共读工具调用（open / read / search / goto / note）都顺手 `sync` 一次，插件加载时也预读一次。三种结局都想过：
+
+| 情况 | 处理 | 为什么 |
+| --- | --- | --- |
+| 版本没变 | 直接返回，不重读 | 每次工具调用都会走到这里，必须便宜 |
+| 文件不在 | 清掉正文 + 记错误 | 用户删了文件却还在吃旧提示词，比报错更坏 |
+| 超过 `maxChars` | 拒绝本次加载，**保留**上一次正文 | 中途抽掉已生效的提示词，会让「讲法突然变了」无从解释 |
+| 读失败（权限 / IO） | 保留上一次正文 + 记错误，且不记版本（下次再试） | 一次读取抖动不该让提示词消失 |
+
+错误不会抛出去打断工具：它们进 `state.error`，由 `/handout teacher` 和 `ctx.logger` 暴露。共读功能永远不会因为提示词文件坏了而不可用。
 
 ### `lib/index.js` —— 宿主半
 
@@ -175,10 +206,20 @@ const inject = ['tools', 'fs', 'systemPrompt', 'sessionProjections', 'commands']
 const Config = z.object({ maxSectionChars: z.natural().default(12000), /* … */ });
 
 function apply(ctx, config) {
+  const teacher = createTeacherPrompt({ path: config.teacherPromptPath, /* … */ });
+  const syncTeacher = (exec) => teacher.sync(ctx.fs, { cwd: exec.agent?.session.header.cwd, signal: exec.signal });
+  void syncTeacher({});                       // 加载时预读：会话恢复时第一条请求就带上
+
   ctx.sessionProjections.register({ key: 'handout', stateSchema, init, apply, wire, stateVersion });
   ctx.tools.register(defineTool({ name: 'handout_open', description, parameters, output, execute }));
   ctx.commands.register({ name: 'handout', description, handler });
   ctx.systemPrompt.context({ name: 'handout:co-reading', order: 1500, text: (context) => '…' });
+  ctx.systemPrompt.section({
+    name: 'handout:teacher',
+    order: config.teacherOrder,
+    interpolate: false,                       // 见 §7 第 11 条
+    text: (context) => teacher.text()         // 空串 = 不注入
+  });
 }
 export { apply, Config, inject, name };
 ```
@@ -196,10 +237,12 @@ export { apply, Config, inject, name };
 | 写会话事件 | `session.append(type, data)`（类型自由，data 必须是可 JSON 序列化的） | `dsh-session/lib/index.js:1441` |
 | 读投影 | `ctx.sessionProjections.stateOf(session, key)` | `dsh-sandbox-policy/lib/index.js:155` |
 | 动态提示 | `ctx.systemPrompt.context({name, order, text: (context) => string})`，`context.agent?.session` | `dsh-sandbox-policy/lib/index.js:122` |
-| 静态提示 | `ctx.systemPrompt.section({name, order, text})`，order 用 `ctx.systemPrompt.getSectionOrder('TOOL_READ')` 这类具名常量 | `dsh-tool-fs/lib/index.js:256` |
-| 注册命令 | `ctx.commands.register({name, description, handler})`，`handler({agent, rawInput, signal})` 返回 `{kind:'success'\|'error', text}` | `dsh-commands/lib/index.js:266,379` |
+| 静态提示 | `ctx.systemPrompt.section({name, order, text, interpolate})`，`text` 可以是 `(context) => string`；order 可用 `getSectionOrder('TOOL_READ')` 这类具名常量，外部插件传任意有限数即可 | `dsh-system-prompt/lib/index.js:262` |
+| 注册命令 | `ctx.commands.register({name, description, handler})`，`handler({agent, rawInput, signal})` 返回 `{kind:'success'\|'error', text}`；**handler 可以是 async**（返回值会被 `await`） | `dsh-commands/lib/index.js:266,388` |
 
 > 注意 `systemPrompt.context` 的 `order`：内置只登记了 `SANDBOX_POLICY(110)`、`APPROVAL_POLICY(115)`、`SUBAGENT_DELEGATION(120)` 三个具名位置，其余传字面量即可（骨架用 1500，落在它们之后、工具说明之前）。
+>
+> 静态 section 的位置是全 `SECTION_ORDERS` 里挑的：`HARNESS_IDENTITY(-1000)`、`DEPLOYMENT_PERSONA_PREFIX(0)`、`PLAN_POLICY(500)`、`TOOL_*(1000+)`、`TOOLS_SDK(5000)`、`STRUCTURED_OUTPUT(9900)`、`DEPLOYMENT_PERSONA_SUFFIX(10200)`。讲师提示词取 **100**：紧跟部署 persona，早于计划与工具策略——先定「怎么讲」，再看工具怎么用。section 之间用空行拼接，渲染为空串的 section 会被丢掉。
 
 ### `cordis.patch.yml` —— 这一层插什么行
 
@@ -210,6 +253,10 @@ export { apply, Config, inject, name };
       config:
         maxSectionChars: 12000
         maxOutlineEntries: 300
+        teacherPromptPath: prompts/teacher.md   # 相对插件包根目录解析
+        teacherPromptMaxChars: 24000
+        teacherOrder: 100
+        teacherAlways: false
 ```
 
 `!!js` 表达式在这个文件里是可用的（比如 `dataRoot: !!js dshHomePath('speech-to-text')`），需要动态路径时可以用。
@@ -271,6 +318,7 @@ node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/pnpm/bin/pnp
 | `~/.dsh/profiles/desktop/package.json` 的 `bundles` | **立刻**（配置监听） |
 | `~/.dsh/profiles/desktop/cordis.patch.yml` | **立刻**（配置监听；patch 变化会触发 profile 重新组合） |
 | 插件**源码**（`lib/*.js`） | 默认**不会**热重载——见下 |
+| 讲师提示词（`prompts/teacher.md`） | **下一轮对话**：每次共读工具调用顺手核对文件版本；想立刻确认用 `/handout teacher reload`。与源码热重载无关，不依赖 `hmr` |
 | 浏览器半（`lib/client.js`） | 宿主在 `/plugins/<包名>/client.js` 直接读磁盘、按 mtime/size 判 rev（`dsh-client-modules/lib/index.js:613`），改完**刷新页面**即可 |
 
 base 层给 `hmr` 的默认配置是 `root: []`，**只监听配置、不监听模块源码**。要打开源码热重载，在 profile 的 `cordis.patch.yml` 里覆盖这一行：
@@ -295,10 +343,11 @@ base 层给 `hmr` 的默认配置是 `root: []`，**只监听配置、不监听�
 | **0** | 一行业务代码都不写：讲义丢进工作区，用内置右侧栏预览 + 内置 `read`/`grep` | 建议你仍然先试一下，感受「缺什么」 |
 | **1** | 宿主半：5 个工具 + 会话投影 + 动态提示 + `/handout` 命令（Markdown/文本） | ✅ 已完成并真机跑通 |
 | **2** | PDF 讲义（逐页抽取 + 书签目录 + 指纹缓存 + 扫描件报错） | ✅ 已完成并真机跑通 |
-| **3** | 浏览器半：右侧栏「共读」面板，大纲树 + 正文 + 位置高亮 + 选中提问 | ⬜ 未做（见下） |
-| **4** | DOCX/PPTX 讲义、批注导出成复习卡、多讲义并行 | ⬜ 按需 |
+| **3** | 讲师提示词：`prompts/teacher.md` + 版本化热加载 + `systemPrompt.section` + `/handout teacher` | ✅ 已完成并真机验证（改文件后下一轮系统提示即变） |
+| **4** | 浏览器半：右侧栏「共读」面板，大纲树 + 正文 + 位置高亮 + 选中提问 | ⬜ 未做（见下） |
+| **5** | DOCX/PPTX 讲义、批注导出成复习卡、多讲义并行、按讲义切换提示词 | ⬜ 按需 |
 
-### 阶段 3 的技术底细（我已验证的部分）
+### 阶段 4 的技术底细（我已验证的部分）
 
 浏览器半**不需要打包器**也能写，因为加载协议很简单：文件就是一个调用注册函数的脚本，宿主任意路径原样伺服。
 
@@ -367,6 +416,9 @@ react  react/jsx-runtime  react-dom  react-dom/client
 8. **`session.append` 的 data 必须严格可 JSON 序列化**（不能有 `undefined`、`Date`、`Map`、类实例）。所以我用 `at: Date.now()` 而不是 `new Date()`。
 9. **浏览器半的 `inject` 字段是编译期声明**，运行时再少一个服务就会直接不加载。
 10. **从源码热重载默认是关的**（`hmr` 的 `root: []`），改了 `lib/*.js` 不生效不是你的错觉，见 §5。
+11. **`systemPrompt.section` 默认会做 `{{变量}}` 插值，而且取不到变量就抛错**。`renderPrompt()` 对每个 section 逐字扫描 `{{name}}`：名字不合法、没注册、注册了但值为 `undefined`，三种情况都会让**整次组装抛错**（不是跳过这一段）。讲师提示词是用户写的 Markdown，随时可能写出 `{{...}}`（模板示例、LaTeX 变体、伪代码），所以注册时必须 `interpolate: false`：宁可不支持变量，也不能让用户的一份文本把整个 system prompt 打掉。顺带记两条同源行为：section 之间用空行拼接、**渲染为空串的会被丢掉**；`complete: true` 的 section 会独占整份 system prompt。
+12. **section 的 `text` 只能是同步函数**（`(context) => string`），所以任何需要读文件的内容都必须提前缓存好。讲师提示词因此是「`sync()` 异步读盘 + `text()` 同步出文本」两层，读盘挂在每次共读工具调用上——这也是「改完 Markdown 下一轮就生效」能成立的原因。
+13. **`ctx.commands` 的 handler 可以是 async**（`dsh-commands` 里是 `await withAbort(Promise.resolve(output), signal)`）。但改成 async 就是破坏性变更：调用方从 `handler(...).text` 变成 `(await handler(...)).text`——这次改动顺手把测试里的旧断言全改成了 await。
 
 ---
 
@@ -375,11 +427,11 @@ react  react/jsx-runtime  react-dom  react-dom/client
 ```bash
 cd /绝对路径/dsh-plugin-handout
 
-node --test test/*.test.js     # 42 passed：文本解析 11 + PDF 12 + 插件集成 19
+node --test test/*.test.js     # 65 passed：文本解析 11 + PDF 16 + 插件集成 29 + 讲师提示词 9
 node --check lib/index.js      # 语法检查
 ```
 
-`test/plugin.test.js` 是这里最有价值的一层：它用假 `ctx` 把 `apply()` 真跑起来（`defineTool`/`schemastery`/`zod` 都是真包），覆盖工具注册、参数校验、PDF 抽取缓存、会话投影、动态系统提示文本、斜杠命令，以及 **`render` 必须包含正文** 这条回归。它不需要启动 DSH，几毫秒跑完。
+`test/plugin.test.js` 是这里最有价值的一层：它用假 `ctx` 把 `apply()` 真跑起来（`defineTool`/`schemastery`/`zod` 都是真包），覆盖工具注册、参数校验、PDF 抽取缓存、会话投影、动态系统提示文本、讲师提示词的注册与生效范围、斜杠命令，以及 **`render` 必须包含正文** 这条回归。它不需要启动 DSH，几毫秒跑完。
 
 真机验证做过的（样例可用仓库内的 `test/fixtures/make-pdf.mjs` 自行生成，`node test/fixtures/make-pdf.mjs <输出路径>`）：
 
@@ -395,9 +447,11 @@ handout_open  <无文字层 PDF>           → 明确报错并要求 OCR
 
 另外在一份真实的 51 页课程幻灯片上验证过：页眉/页码/纯符号行的三层过滤把它从「51 行一模一样」修成了可用的目录。
 
+讲师提示词也做了真机端到端验证（这次没有停在「单测全绿」）：往 `prompts/teacher.md` 写入一行带标记的正文 → 调用一次 `handout_read` → 该标记出现在**下一轮请求的系统提示**里，位置紧跟部署 persona、在「Tokens prefixed with @…」这段内置说明之前；把文件恢复成注释骨架后，注入随之消失（`chars: 0`）。这条链路同时证明了：默认相对路径能落到真实文件、文件版本变化能被 `sync` 认出来、`interpolate: false` 的 section 能正常组装、以及空内容等于零注入。
+
 接着可以做的话，按性价比排序：
 
-1. **阶段 3 的右侧栏面板**（大纲树 + 正文 + 位置高亮 + 选中即问）——需要边跑边试 `sidebarRightTabs.register` 的类型定义；
+1. **阶段 4 的右侧栏面板**（大纲树 + 正文 + 位置高亮 + 选中即问）——需要边跑边试 `sidebarRightTabs.register` 的类型定义；
 2. **DOCX/PPTX 讲义**（`unpdf` 只吃 PDF；Office 可以走 docx 解析器，或复用 app 自带的 LibreOffice 转 PDF 再抽）；
 3. **批注导出成复习卡**。
 

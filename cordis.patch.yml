@@ -19,3 +19,13 @@
         maxPdfPages: 600
         # 缓存几份已抽取的 PDF（按 dev:ino:size:mtimeNs 指纹失效）。
         pdfCacheEntries: 4
+        # 讲师提示词：一份 Markdown，决定模型「怎么讲」（讲义决定「讲什么」）。
+        # 相对路径按插件包根目录解析（不按会话 cwd），也接受绝对路径与 ~/；空串关闭。
+        # 默认这份随包发布，直接改它即可：改完下一轮对话生效，不用重启。
+        teacherPromptPath: prompts/teacher.md
+        # 提示词字符上限：超过就拒绝加载（提示词每轮都进上下文，必须有闸门）。
+        teacherPromptMaxChars: 24000
+        # 提示词在系统提示里的位置：0 是部署级 persona，100 落在它之后、计划/工具策略之前。
+        teacherOrder: 100
+        # 默认只在共读进行中（已 handout_open）注入；改成 true 则每轮对话都带上。
+        teacherAlways: false
