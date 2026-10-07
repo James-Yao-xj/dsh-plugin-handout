@@ -1,4 +1,8 @@
 {
+  "meta": {
+    "title": "Handout co-reading",
+    "description": "Bring a handout (Markdown / text / PDF) into the session and read it together: fetch text by section or page, search the whole document, keep track of where the user is, and record what to revisit."
+  },
   "title": "Co-read",
   "empty": "No handout is open. Use /handout open <path>, or ask the model to open one.",
   "outline": "Outline",

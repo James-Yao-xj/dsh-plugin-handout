@@ -15,7 +15,7 @@
 | 讲师提示词（静态系统提示 + 热重载） | ✅ 真机验证：改 Markdown 后下一轮系统提示即变，位置在 persona 之后 |
 | 源码热重载（HMR） | ✅ 已配置并验证（见 §5） |
 | 扫描件（无文字层）PDF | ✅ 明确报错并提示 OCR |
-| 单测 / 集成测试 | ✅ 65 个测试全绿（`node --test test/*.test.js`） |
+| 单测 / 集成测试 | ✅ 72 个测试全绿（`node --test test/*.test.js`） |
 | 浏览器半（右侧栏共读面板） | ⬜ 未做，见 §6 阶段 4 |
 
 ---
@@ -419,6 +419,7 @@ react  react/jsx-runtime  react-dom  react-dom/client
 11. **`systemPrompt.section` 默认会做 `{{变量}}` 插值，而且取不到变量就抛错**。`renderPrompt()` 对每个 section 逐字扫描 `{{name}}`：名字不合法、没注册、注册了但值为 `undefined`，三种情况都会让**整次组装抛错**（不是跳过这一段）。讲师提示词是用户写的 Markdown，随时可能写出 `{{...}}`（模板示例、LaTeX 变体、伪代码），所以注册时必须 `interpolate: false`：宁可不支持变量，也不能让用户的一份文本把整个 system prompt 打掉。顺带记两条同源行为：section 之间用空行拼接、**渲染为空串的会被丢掉**；`complete: true` 的 section 会独占整份 system prompt。
 12. **section 的 `text` 只能是同步函数**（`(context) => string`），所以任何需要读文件的内容都必须提前缓存好。讲师提示词因此是「`sync()` 异步读盘 + `text()` 同步出文本」两层，读盘挂在每次共读工具调用上——这也是「改完 Markdown 下一轮就生效」能成立的原因。
 13. **`ctx.commands` 的 handler 可以是 async**（`dsh-commands` 里是 `await withAbort(Promise.resolve(output), signal)`）。但改成 async 就是破坏性变更：调用方从 `handler(...).text` 变成 `(await handler(...)).text`——这次改动顺手把测试里的旧断言全改成了 await。
+14. **插件卡片上的标题、描述与图标不在 `package.json` 里**：描述读的是 `locale/<语言>.json` 里 **`meta.title` / `meta.description`**，图标是清单顶层的 `icon`（按路径解析，不走 `exports`）。三处都缺过，而且缺了**都不报错**，只是卡片安静地退回显示包名与默认图标。读取方是 `dsh-app-boot` 的 `readPluginMeta()`；`exports` 里必须同时导出 `./package.json` 与 `./locale/*.json`，因为它是用 ESM 解析器拿这两个资源的。`test/locale.test.js` 现在盯着这些。
 
 ---
 
@@ -427,7 +428,7 @@ react  react/jsx-runtime  react-dom  react-dom/client
 ```bash
 cd /绝对路径/dsh-plugin-handout
 
-node --test test/*.test.js     # 65 passed：文本解析 11 + PDF 16 + 插件集成 29 + 讲师提示词 9
+node --test test/*.test.js     # 72 passed：文本解析 11 + PDF 16 + 插件集成 29 + 讲师提示词 9 + 清单与显示元数据 7
 node --check lib/index.js      # 语法检查
 ```
 

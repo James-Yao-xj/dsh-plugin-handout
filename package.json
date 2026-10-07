@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MIT",
   "author": "James-Yao-xj",
+  "icon": "./icon.svg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/James-Yao-xj/dsh-plugin-handout.git"
@@ -29,6 +30,7 @@
       "default": "./lib/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [

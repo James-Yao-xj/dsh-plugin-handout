@@ -182,6 +182,16 @@ prompts/teacher.md          # 随包发布，直接改这一份
 | `teacherOrder` | `100` | 讲师提示词在系统提示里的排序位置 |
 | `teacherAlways` | `false` | 没有打开讲义时也注入讲师提示词 |
 
+### 界面上的标题与图标
+
+插件卡片、bundle 详情和「内置插件」清单里的标题与描述，读的是 `locale/<语言>.json` 里 **`meta` 下面**的字段，图标是 `package.json` 顶层的 `icon`：
+
+```json
+{ "meta": { "title": "共读讲义", "description": "把一份讲义（Markdown / 文本 / PDF）接进会话一起读……" } }
+```
+
+三处缺一不可，缺了都**不报错**，只是卡片退回显示包名 `dsh-plugin-handout` 和默认图标：显示文本必须在 `meta` 下（顶层 `title` 会被静默忽略）、`exports` 里必须导出 `./package.json` 与 `./locale/*.json`（读取方是通过 ESM 解析器拿这两个资源的）、`icon` 必须是包内的 SVG / PNG / JPEG / WebP 且不超过 256 KiB。同一个文件里那些扁平键（`empty` / `outline` / `notes` …）是右侧栏面板要用的文案，与上面这套互不干扰；`test/locale.test.js` 把两条契约都挡住了。
+
 ## Model Experience
 
 模型侧新增五个工具、一段动态上下文与一段静态提示（讲师提示词）。动态上下文只在有讲义打开时出现，内容是讲义路径、节数 / 页数、用户当前所在位置与已记批注，以及 PDF 的书签目录（最多 40 条）；**正文永远需要显式调用 `handout_read` 才会进入上下文**。提示里还写了四条行为约束：先取原文再断言、引用要标坐标（`§3.2` / `p12`）、可以补充自己的知识但要明确区分讲义内容与补充。
@@ -203,11 +213,11 @@ prompts/teacher.md          # 随包发布，直接改这一份
 
 ## Dev Note
 
-`lib/handout.js`（文本解析）、`lib/pdf.js`（PDF 抽取）与 `lib/teacher.js`（讲师提示词加载）是零宿主依赖的纯函数，可以直接测；`lib/index.js` 才是 Cordis 插件。`test/plugin.test.js` 用假 `ctx` 把 `apply()` 真跑起来，覆盖工具注册、执行、投影、动态提示、讲师提示词与命令，不需要启动 DSH。
+`lib/handout.js`（文本解析）、`lib/pdf.js`（PDF 抽取）与 `lib/teacher.js`（讲师提示词加载）是零宿主依赖的纯函数，可以直接测；`lib/index.js` 才是 Cordis 插件。`test/plugin.test.js` 用假 `ctx` 把 `apply()` 真跑起来，覆盖工具注册、执行、投影、动态提示、讲师提示词与命令，不需要启动 DSH。`test/locale.test.js` 不测代码，测**清单与 harness 读取方之间的契约**：`meta` 包装、`icon` 规则、读取方要解析的两个 `exports`。
 
 ```bash
 pnpm install
-node --test test/*.test.js      # 65 个测试（文本 11 + PDF 16 + 插件集成 29 + 讲师提示词 9）
+node --test test/*.test.js      # 72 个测试（文本 11 + PDF 16 + 插件集成 29 + 讲师提示词 9 + 清单与显示元数据 7）
 node test/fixtures/make-pdf.mjs /tmp/sample.pdf   # 生成一份样例 PDF
 ```
 
