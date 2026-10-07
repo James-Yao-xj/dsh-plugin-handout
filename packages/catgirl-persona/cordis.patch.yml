@@ -1,0 +1,26 @@
+# 这个 bundle 往 profile 里插入的插件行。
+#
+# profile 的层叠顺序是：dsh-base → dsh-web-app → 各 bundle 的 patch →
+# ~/.dsh/profiles/desktop/cordis.patch.yml → --patch 覆盖层。
+# 所以这里只声明「默认值」，用户想改任何一项，都在 profile 自己的
+# cordis.patch.yml 里用同样的 id 覆盖即可（覆盖是整块 config 替换）。
+#
+# 注意这里**不再**去改 `system-prompt` 那一行的 personaPrefix。原因见
+# docs/DESIGN.zh.md：那份配置是「部署级 persona」，而 agent preset 里的
+# `@deepseek-ai/dsh-persona` 会用同名 section 遮蔽它——Web 会话下写多少都被
+# 挡住。现在由插件自己在系统提示的装配 waterfall 里替换那一段，所有 surface
+# 一致生效，也不需要在 preset 里复制一份猫娘专供的插件清单。
+- insert:
+    - id: catgirl-persona
+      name: 'dsh-persona-catgirl'
+      config:
+        # 人格提示词：一份 Markdown，随包发布，改完下一轮对话生效（不用重启）。
+        # 相对路径按插件包根目录解析（不按会话 cwd），也接受绝对路径与 ~/；空串关闭。
+        promptPath: prompts/catgirl.md
+        # 字符上限：这段文本每轮都进上下文，超过就拒绝加载（并保留上一版）。
+        maxChars: 12000
+        # 要替换的系统提示段：默认就是部署级 persona 前缀，一般不用动。
+        section: 'deployment:persona-prefix'
+        # 正文里的 {{变量}} 是否参与插值。默认 false：按字面量注入，文件里随手写的
+        # {{...}} 不会让整个系统提示组装失败（未知变量在 harness 里是硬错误）。
+        interpolate: false
