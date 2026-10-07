@@ -35,6 +35,7 @@
     "lib",
     "locale",
     "docs",
+    "prompts",
     "cordis.patch.yml",
     "icon.svg",
     "README.md",
