@@ -83,7 +83,11 @@ function apply(ctx, config) {
 
   // 加载时先读一次：这样第一条请求就已经是猫娘，而不是「先普通地回一句再说」。
   // 故意不 await：一个文本文件不该拖慢插件加载，读不到也只是少一层人格。
-  void loader.sync(ctx.fs);
+  // 但**必须**接住 rejection：`sync()` 自己已经把已知失败都收成状态了，这里漏出去的
+  // 只可能是意料之外的异常，而一个未处理的 rejection 在宿主里会变成噪音甚至更糟。
+  void loader.sync(ctx.fs).catch((caught) => {
+    ctx.logger?.error?.(`[catgirl-persona] 启动时预读人格失败：${caught?.message ?? String(caught)}`);
+  });
 
   // ── 系统提示装配：把合并后的 persona 段换掉 ─────────────────────────────
   ctx.on(

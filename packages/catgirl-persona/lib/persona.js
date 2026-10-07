@@ -42,10 +42,15 @@ export const DEFAULT_MAX_CHARS = 12000;
 /**
  * 要被顶掉的 section 名。
  *
- * 取值来自 `@deepseek-ai/dsh-system-prompt` 导出的 `PERSONA_PREFIX_SECTION`。那个包
- * 属于 harness 本体、没有随 npm 发布，所以这里按字面量写死。代价是：万一 harness
- * 改了这个名字，插件会「找不到目标段」。因此 {@link applyPersona} 把这种情况当成
- * 一个**要上报的状态**（而不是静默返回），由日志与 `/persona` 暴露出来。
+ * 取值与 `@deepseek-ai/dsh-system-prompt` 导出的 `PERSONA_PREFIX_SECTION` 相同
+ * （那个包**在 npm 上有**，`@deepseek-ai/dsh-system-prompt@0.2.0-rc.2` 里就是这个
+ * 字面量）。既然有，为什么还写死？因为插件装在 profile 里、`import` 解析到的是
+ * 自己那份 `node_modules`：多一份 harness 内部包的副本，只会带来说不清的版本偏移
+ * （插件装 A 版、宿主跑 B 版），而这里要的只是一个**段名**这种稳定标识——它改名的
+ * 概率远小于版本漂移的概率。
+ *
+ * 代价是：万一 harness 改了这个名字，插件会「找不到目标段」。因此 {@link applyPersona}
+ * 把这种情况当成一个**要上报的状态**（而不是静默返回），由日志与 `/persona` 暴露出来。
  */
 export const PERSONA_SECTION = 'deployment:persona-prefix';
 

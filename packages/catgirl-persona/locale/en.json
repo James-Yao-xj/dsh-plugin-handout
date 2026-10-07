@@ -1,4 +1,6 @@
 {
-  "title": "Catgirl persona",
-  "description": "Replaces the deployment persona with \"OpenCode, a cat goddess\": a warm, playful voice that switches to plain, brisk prose when writing docs."
+  "meta": {
+    "title": "Catgirl persona",
+    "description": "Replaces the deployment persona with \"OpenCode, a cat goddess\": a warm, playful voice that switches to plain, brisk prose when writing docs."
+  }
 }
